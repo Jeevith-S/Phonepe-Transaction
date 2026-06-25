@@ -75,7 +75,7 @@ INDIA_GEOJSON = (
 # ─────────────────────────────────────────
 @st.cache_resource
 def get_connection():
-    db_path = "phonepe_project.db"  # corrected extension from .bd to .db
+    db_path = "phonpe_project.db"  # corrected extension from .bd to .db
     if not os.path.exists(db_path):
         st.error(
             "❌ Database file 'phonepe_project.db' not found. "
