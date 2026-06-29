@@ -3,222 +3,30 @@ import pandas as pd
 import sqlite3
 import plotly.express as px
 import os
-import json
-import subprocess
 
-# ── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="PhonePe Transaction Insights",
     page_icon="📱",
     layout="wide"
 )
 
-# ── Constants ─────────────────────────────────────────────────────────────────
-DB_PATH    = "phonep_project.db"
-PULSE_PATH = "pulse"
+# ── Database connection ───────────────────────────────────────────────────────
+DB_PATH = "phonepe_project.db"
+
+@st.cache_resource
+def get_conn():
+    if not os.path.exists(DB_PATH):
+        st.error("Database file 'phonepe_project.db' not found in the repo root.")
+        st.stop()
+    return sqlite3.connect(DB_PATH, check_same_thread=False)
+
+conn = get_conn()
+
 GEOJSON_URL = (
     "https://gist.githubusercontent.com/jbrobst/56c13bbbf9d97d187fea01ca62ea5112"
     "/raw/e388c4cae20aa53cb5090210a42ebb9b765c0a36/india_states.geojson"
 )
 
-# ── Database builder (runs once on first launch) ───────────────────────────────
-def clone_pulse():
-    if not os.path.exists(PULSE_PATH):
-        st.write("📥 Cloning PhonePe Pulse repository...")
-        subprocess.run(
-            ["git", "clone", "--depth=1",
-             "https://github.com/PhonePe/pulse.git", PULSE_PATH],
-            check=True
-        )
-
-def load_agg_insurance(base):
-    rows = []
-    path = os.path.join(base, "aggregated/insurance/country/india/state")
-    for state in os.listdir(path):
-        for year in os.listdir(os.path.join(path, state)):
-            for f in os.listdir(os.path.join(path, state, year)):
-                with open(os.path.join(path, state, year, f)) as fp:
-                    data = json.load(fp)
-                for i in data["data"]["transactionData"]:
-                    rows.append({
-                        "State": state, "Year": int(year),
-                        "Quarter": int(f.strip(".json")),
-                        "Insurance_Type": i["name"],
-                        "Insurance_Count": i["paymentInstruments"][0]["count"],
-                        "Insurance_Amount": i["paymentInstruments"][0]["amount"]
-                    })
-    return pd.DataFrame(rows)
-
-def load_agg_transaction(base):
-    rows = []
-    path = os.path.join(base, "aggregated/transaction/country/india/state")
-    for state in os.listdir(path):
-        for year in os.listdir(os.path.join(path, state)):
-            for f in os.listdir(os.path.join(path, state, year)):
-                with open(os.path.join(path, state, year, f)) as fp:
-                    data = json.load(fp)
-                for i in data["data"]["transactionData"]:
-                    rows.append({
-                        "State": state, "Year": int(year),
-                        "Quarter": int(f.strip(".json")),
-                        "Transaction_Type": i["name"],
-                        "Transaction_Count": i["paymentInstruments"][0]["count"],
-                        "Transaction_Amount": i["paymentInstruments"][0]["amount"]
-                    })
-    return pd.DataFrame(rows)
-
-def load_agg_user(base):
-    rows = []
-    path = os.path.join(base, "aggregated/user/country/india/state")
-    for state in os.listdir(path):
-        for year in os.listdir(os.path.join(path, state)):
-            for f in os.listdir(os.path.join(path, state, year)):
-                with open(os.path.join(path, state, year, f)) as fp:
-                    data = json.load(fp)
-                if data["data"] and data["data"].get("usersByDevice"):
-                    for u in data["data"]["usersByDevice"]:
-                        rows.append({
-                            "State": state, "Year": int(year),
-                            "Quarter": int(f.strip(".json")),
-                            "Brand": u["brand"],
-                            "Count": u["count"],
-                            "Percentage": u["percentage"]
-                        })
-    return pd.DataFrame(rows)
-
-def load_map_insurance(base):
-    rows = []
-    path = os.path.join(base, "map/insurance/hover/country/india/state")
-    for state in os.listdir(path):
-        for year in os.listdir(os.path.join(path, state)):
-            for f in os.listdir(os.path.join(path, state, year)):
-                with open(os.path.join(path, state, year, f)) as fp:
-                    data = json.load(fp)
-                for e in data["data"]["hoverDataList"]:
-                    rows.append({
-                        "State": state, "Year": int(year),
-                        "Quarter": int(f.strip(".json")),
-                        "District": e["name"],
-                        "Count": e["metric"][0]["count"],
-                        "Amount": e["metric"][0]["amount"]
-                    })
-    return pd.DataFrame(rows)
-
-def load_map_transaction(base):
-    rows = []
-    path = os.path.join(base, "map/transaction/hover/country/india/state")
-    for state in os.listdir(path):
-        for year in os.listdir(os.path.join(path, state)):
-            for f in os.listdir(os.path.join(path, state, year)):
-                with open(os.path.join(path, state, year, f)) as fp:
-                    data = json.load(fp)
-                for i in data["data"]["hoverDataList"]:
-                    rows.append({
-                        "State": state, "Year": int(year),
-                        "Quarter": int(f.strip(".json")),
-                        "District": i["name"],
-                        "Count": i["metric"][0]["count"],
-                        "Amount": i["metric"][0]["amount"]
-                    })
-    return pd.DataFrame(rows)
-
-def load_map_user(base):
-    rows = []
-    path = os.path.join(base, "map/user/hover/country/india/state")
-    for state in os.listdir(path):
-        for year in os.listdir(os.path.join(path, state)):
-            for f in os.listdir(os.path.join(path, state, year)):
-                with open(os.path.join(path, state, year, f)) as fp:
-                    data = json.load(fp)
-                for dist, val in data["data"]["hoverData"].items():
-                    rows.append({
-                        "State": state, "Year": int(year),
-                        "Quarter": int(f.strip(".json")),
-                        "District": dist,
-                        "RegisteredUsers": val["registeredUsers"],
-                        "AppOpens": val["appOpens"]
-                    })
-    return pd.DataFrame(rows)
-
-def load_top_user_pincodes(base):
-    rows = []
-    path = os.path.join(base, "top/user/country/india/state")
-    for state in os.listdir(path):
-        state_path = os.path.join(path, state)
-        if not os.path.isdir(state_path):
-            continue
-        for year in os.listdir(state_path):
-            year_path = os.path.join(state_path, year)
-            if not os.path.isdir(year_path):
-                continue
-            for f in os.listdir(year_path):
-                with open(os.path.join(year_path, f)) as fp:
-                    data = json.load(fp)
-                for pin in data["data"].get("pincodes", []):
-                    rows.append({
-                        "State": state, "Year": int(year),
-                        "Quarter": int(f.strip(".json")),
-                        "Pincode": str(pin["name"]),
-                        "RegisteredUsers": pin["registeredUsers"]
-                    })
-    return pd.DataFrame(rows)
-
-def build_database():
-    base = os.path.join(PULSE_PATH, "data")
-    progress = st.progress(0, text="Starting setup...")
-
-    clone_pulse()
-    progress.progress(10, text="Loading Aggregated Insurance...")
-    df_agg_ins  = load_agg_insurance(base)
-
-    progress.progress(22, text="Loading Aggregated Transaction...")
-    df_agg_txn  = load_agg_transaction(base)
-
-    progress.progress(36, text="Loading Aggregated User...")
-    df_agg_user = load_agg_user(base)
-
-    progress.progress(50, text="Loading Map Insurance...")
-    df_map_ins  = load_map_insurance(base)
-
-    progress.progress(62, text="Loading Map Transaction...")
-    df_map_txn  = load_map_transaction(base)
-
-    progress.progress(74, text="Loading Map User...")
-    df_map_user = load_map_user(base)
-
-    progress.progress(86, text="Loading Top User Pincodes...")
-    df_top_pin  = load_top_user_pincodes(base)
-
-    progress.progress(94, text="Writing to database...")
-    conn = sqlite3.connect(DB_PATH)
-    df_agg_ins.to_sql("Aggregated_Insurance",   conn, if_exists="replace", index=False)
-    df_agg_txn.to_sql("Aggregated_Transaction", conn, if_exists="replace", index=False)
-    df_agg_user.to_sql("Aggregated_User",       conn, if_exists="replace", index=False)
-    df_map_ins.to_sql("Map_Insurance",          conn, if_exists="replace", index=False)
-    df_map_txn.to_sql("Map_Transaction",        conn, if_exists="replace", index=False)
-    df_map_user.to_sql("Map_User",              conn, if_exists="replace", index=False)
-    df_top_pin.to_sql("Top_User_Pincodes",      conn, if_exists="replace", index=False)
-    conn.close()
-
-    progress.progress(100, text="Done!")
-    st.success("Database ready! The app will now reload.")
-    st.rerun()
-
-# ── First-time setup ──────────────────────────────────────────────────────────
-if not os.path.exists(DB_PATH):
-    st.title("📱 PhonePe Transaction Insights")
-    st.info("Setting up for the first time — this takes about 2-3 minutes and only happens once.")
-    build_database()
-    st.stop()
-
-# ── Connect to database ────────────────────────────────────────────────────────
-@st.cache_resource
-def get_conn():
-    return sqlite3.connect(DB_PATH, check_same_thread=False)
-
-conn = get_conn()
-
-# ── Helper: clean state name for choropleth matching ──────────────────────────
 def clean_state_names(df, col="State"):
     df = df.copy()
     df[col] = (df[col]
@@ -228,7 +36,7 @@ def clean_state_names(df, col="State"):
                .str.strip())
     return df
 
-# ── Sidebar ────────────────────────────────────────────────────────────────────
+# ── Sidebar ───────────────────────────────────────────────────────────────────
 st.sidebar.title("📱 PhonePe Dashboard")
 st.sidebar.markdown("---")
 
@@ -248,71 +56,38 @@ year    = st.sidebar.selectbox("Year",    [2018, 2019, 2020, 2021, 2022, 2023, 2
 quarter = st.sidebar.selectbox("Quarter", [1, 2, 3, 4])
 
 # ══════════════════════════════════════════════════════════════════════════════
-# HOME PAGE
+# HOME
 # ══════════════════════════════════════════════════════════════════════════════
 if page == "Home":
     st.title("📱 PhonePe Transaction Insights")
     st.write("Interactive dashboard built on PhonePe Pulse open data")
     st.markdown("---")
 
-    # KPI cards
-    col1, col2, col3, col4 = st.columns(4)
-    try:
-        total_txn     = pd.read_sql("SELECT SUM(Transaction_Amount) FROM Aggregated_Transaction", conn).iloc[0,0]
-        total_users   = pd.read_sql("SELECT SUM(RegisteredUsers) FROM Map_User", conn).iloc[0,0]
-        total_ins     = pd.read_sql("SELECT SUM(Insurance_Amount) FROM Aggregated_Insurance", conn).iloc[0,0]
-        total_records = pd.read_sql("SELECT COUNT(*) FROM Aggregated_Transaction", conn).iloc[0,0]
+    st.subheader("About This Project")
+    st.write("""
+    This dashboard analyses PhonePe Pulse — India's open-source digital payments dataset.
 
-        col1.metric("Total Transaction Value", f"₹{total_txn/1e12:.2f} T")
-        col2.metric("Registered Users",        f"{total_users/1e6:.1f} M")
-        col3.metric("Insurance Amount",        f"₹{total_ins/1e9:.1f} B")
-        col4.metric("Transaction Records",     f"{int(total_records):,}")
-    except Exception as e:
-        st.warning(f"Could not load KPIs: {e}")
-
-    st.markdown("---")
-
-    # About section
-    col_a, col_b = st.columns(2)
-
-    with col_a:
-        st.subheader("About This Project")
-        st.write("""
-        This dashboard analyses PhonePe Pulse — India's open-source digital payments dataset.
-
-        **What's covered:**
-        - Transaction trends across all Indian states
-        - Device brand usage and user engagement
-        - Insurance product penetration
-        - Geographic heatmaps on India map
-        - Top districts and pincodes by user registration
-        """)
-
-    with col_b:
-        st.subheader("Database Tables")
-        tables = [
-            "Aggregated_Transaction",
-            "Aggregated_User",
-            "Aggregated_Insurance",
-            "Map_Transaction",
-            "Map_User",
-            "Map_Insurance",
-            "Top_User_Pincodes"
-        ]
-        for t in tables:
-            st.write(f"✅  {t}")
+    **What's covered:**
+    - Transaction trends across all Indian states
+    - Device brand usage and user engagement
+    - Insurance product penetration
+    - Geographic heatmaps on India map
+    - Top districts by user registration
+    """)
 
     st.markdown("---")
     st.subheader("How to use")
-    st.write("Use the **sidebar** to navigate between the 5 business case studies. "
-             "Select a **Year** and **Quarter** from the sidebar filters to update all charts.")
+    st.write(
+        "Use the **sidebar** to navigate between the 5 business case studies. "
+        "Select a **Year** and **Quarter** from the sidebar filters to update all charts."
+    )
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CASE 1 — TRANSACTION DYNAMICS
 # ══════════════════════════════════════════════════════════════════════════════
 elif page == "Case 1 - Transaction Dynamics":
     st.title("Case 1 — Decoding Transaction Dynamics")
-    st.write("Analyse how transaction amounts and counts vary across Indian states and payment categories.")
+    st.write("Analyse how transaction amounts vary across Indian states and payment categories.")
     st.markdown("---")
 
     try:
@@ -337,7 +112,6 @@ elif page == "Case 1 - Transaction Dynamics":
             ORDER BY Total_Amount DESC
         """, conn)
 
-        # India map
         st.subheader(f"State-wise Transaction Amount — {year} Q{quarter}")
         fig_map = px.choropleth(
             df,
@@ -354,9 +128,8 @@ elif page == "Case 1 - Transaction Dynamics":
         st.plotly_chart(fig_map, use_container_width=True)
 
         col1, col2 = st.columns(2)
-
         with col1:
-            st.subheader("Bar Chart — Top States")
+            st.subheader("Top 15 States — Bar Chart")
             fig_bar = px.bar(
                 df.head(15), x="State", y="Total_Amount",
                 color="Total_Amount", color_continuous_scale="Purples",
@@ -377,7 +150,7 @@ elif page == "Case 1 - Transaction Dynamics":
         st.dataframe(df, use_container_width=True)
 
         if not df.empty:
-            st.info(f"📌 **Top State:** {df.iloc[0]['State']} with ₹{df.iloc[0]['Total_Amount']:,.0f}")
+            st.info(f"📌 Top State: {df.iloc[0]['State']} — ₹{df.iloc[0]['Total_Amount']:,.0f}")
 
     except Exception as e:
         st.error(f"Error: {e}")
@@ -412,7 +185,6 @@ elif page == "Case 2 - Device Analysis":
         """, conn)
 
         col1, col2 = st.columns(2)
-
         with col1:
             st.subheader(f"Market Share — {year} Q{quarter}")
             fig_pie = px.pie(
@@ -432,14 +204,13 @@ elif page == "Case 2 - Device Analysis":
             fig_bar.update_xaxes(tickangle=45)
             st.plotly_chart(fig_bar, use_container_width=True)
 
-        st.subheader("Brand Trend Over Time (Top 5 Brands)")
+        st.subheader("Brand Trend Over Time — Top 5 Brands")
         if not df_trend.empty:
             top5 = df["Brand"].head(5).tolist()
-            df_trend_top = df_trend[df_trend["Brand"].isin(top5)].copy()
-            df_trend_top["Period"] = (df_trend_top["Year"].astype(str)
-                                      + "-Q" + df_trend_top["Quarter"].astype(str))
+            dft = df_trend[df_trend["Brand"].isin(top5)].copy()
+            dft["Period"] = dft["Year"].astype(str) + "-Q" + dft["Quarter"].astype(str)
             fig_line = px.line(
-                df_trend_top, x="Period", y="Total_Users", color="Brand",
+                dft, x="Period", y="Total_Users", color="Brand",
                 title="Top 5 Brands — User Count Over Time"
             )
             fig_line.update_xaxes(tickangle=45)
@@ -449,8 +220,7 @@ elif page == "Case 2 - Device Analysis":
         st.dataframe(df, use_container_width=True)
 
         if not df.empty:
-            st.info(f"📌 **Top Device Brand:** {df.iloc[0]['Brand']} "
-                    f"with {df.iloc[0]['Total_Users']:,} users")
+            st.info(f"📌 Top Device Brand: {df.iloc[0]['Brand']} — {df.iloc[0]['Total_Users']:,} users")
 
     except Exception as e:
         st.error(f"Error: {e}")
@@ -484,7 +254,6 @@ elif page == "Case 3 - Insurance Analysis":
             ORDER BY Year, Quarter
         """, conn)
 
-        # India map
         st.subheader(f"Insurance Amount by State — {year} Q{quarter}")
         if not df.empty:
             fig_map = px.choropleth(
@@ -504,9 +273,8 @@ elif page == "Case 3 - Insurance Analysis":
             st.warning("No insurance data for this year and quarter.")
 
         col1, col2 = st.columns(2)
-
         with col1:
-            st.subheader("Bar Chart — Top States")
+            st.subheader("Top 15 States — Bar Chart")
             fig_bar = px.bar(
                 df.head(15), x="State", y="Total_Insurance",
                 color="Total_Insurance", color_continuous_scale="Greens",
@@ -533,7 +301,7 @@ elif page == "Case 3 - Insurance Analysis":
 
         if not df.empty:
             top3 = df.head(3)["State"].tolist()
-            st.info(f"📌 **Top 3 States:** {', '.join(top3)}")
+            st.info(f"📌 Top 3 States: {', '.join(top3)}")
 
     except Exception as e:
         st.error(f"Error: {e}")
@@ -570,14 +338,12 @@ elif page == "Case 4 - Market Expansion":
 
         df_yoy = pd.read_sql("""
             SELECT Year,
-                   SUM(Amount) AS Total_Amount,
-                   SUM(Count)  AS Total_Count
+                   SUM(Amount) AS Total_Amount
             FROM Map_Transaction
             GROUP BY Year
             ORDER BY Year
         """, conn)
 
-        # India map
         st.subheader(f"All States — Transaction Map ({year} Q{quarter})")
         if not df_all.empty:
             fig_map = px.choropleth(
@@ -595,7 +361,6 @@ elif page == "Case 4 - Market Expansion":
             st.plotly_chart(fig_map, use_container_width=True)
 
         col1, col2 = st.columns(2)
-
         with col1:
             st.subheader(f"Top 10 States — {year} Q{quarter}")
             fig_bar = px.bar(
@@ -607,28 +372,20 @@ elif page == "Case 4 - Market Expansion":
             st.plotly_chart(fig_bar, use_container_width=True)
 
         with col2:
-            st.subheader("Treemap — Top 10 States")
-            if not df_top10.empty:
-                fig_tree = px.treemap(
-                    df_top10, path=["State"], values="Total_Amount",
-                    title="Treemap: Top 10 States by Transaction Amount"
+            st.subheader("Year-over-Year Growth")
+            if not df_yoy.empty:
+                fig_yoy = px.bar(
+                    df_yoy, x="Year", y="Total_Amount",
+                    title="Year-over-Year Total Transaction Amount",
+                    color_discrete_sequence=["#5F2D82"]
                 )
-                st.plotly_chart(fig_tree, use_container_width=True)
-
-        st.subheader("Year-over-Year Growth")
-        if not df_yoy.empty:
-            fig_yoy = px.bar(
-                df_yoy, x="Year", y="Total_Amount",
-                title="Year-over-Year Total Transaction Amount",
-                color_discrete_sequence=["#5F2D82"]
-            )
-            st.plotly_chart(fig_yoy, use_container_width=True)
+                st.plotly_chart(fig_yoy, use_container_width=True)
 
         st.subheader("Data Table — Top 10 States")
         st.dataframe(df_top10, use_container_width=True)
 
         if not df_top10.empty:
-            st.info(f"📌 **Top State:** {df_top10.iloc[0]['State']}")
+            st.info(f"📌 Top State: {df_top10.iloc[0]['State']}")
 
     except Exception as e:
         st.error(f"Error: {e}")
@@ -638,7 +395,7 @@ elif page == "Case 4 - Market Expansion":
 # ══════════════════════════════════════════════════════════════════════════════
 elif page == "Case 5 - User Registration":
     st.title("Case 5 — User Registration Analysis")
-    st.write("Find the top states, districts, and pincodes by registered users.")
+    st.write("Find the top states and districts by registered users.")
     st.markdown("---")
 
     try:
@@ -663,20 +420,6 @@ elif page == "Case 5 - User Registration":
             LIMIT 10
         """, conn)
 
-        df_pin = pd.read_sql(f"""
-            SELECT Pincode, State,
-                   SUM(RegisteredUsers) AS Total_Users
-            FROM Top_User_Pincodes
-            WHERE Year = {year} AND Quarter = {quarter}
-            GROUP BY Pincode, State
-            ORDER BY Total_Users DESC
-            LIMIT 10
-        """, conn)
-        # Fix: cast Pincode to string so it shows as label not numeric axis
-        if not df_pin.empty:
-            df_pin["Pincode"] = df_pin["Pincode"].astype(str)
-
-        # India map
         st.subheader(f"Registered Users by State — {year} Q{quarter}")
         fig_map = px.choropleth(
             df_state,
@@ -693,7 +436,6 @@ elif page == "Case 5 - User Registration":
         st.plotly_chart(fig_map, use_container_width=True)
 
         col1, col2 = st.columns(2)
-
         with col1:
             st.subheader("Top 10 States")
             fig_bar = px.bar(
@@ -717,27 +459,11 @@ elif page == "Case 5 - User Registration":
             else:
                 st.warning("No district data available for this period.")
 
-        st.subheader("Top 10 Pincodes")
-        if not df_pin.empty:
-            fig_pin = px.bar(
-                df_pin, x="Pincode", y="Total_Users",
-                color="Total_Users", color_continuous_scale="Reds",
-                title="Top 10 Pincodes by Registered Users",
-                text="Pincode"
-            )
-            fig_pin.update_traces(textposition="outside")
-            fig_pin.update_xaxes(type="category")  # treats pincode as label not number
-            st.plotly_chart(fig_pin, use_container_width=True)
-            st.dataframe(df_pin, use_container_width=True)
-        else:
-            st.warning("No pincode data available for this period.")
-
         st.subheader("All States — Data Table")
         st.dataframe(df_state, use_container_width=True)
 
         if not df_state.empty:
-            st.info(f"📌 **Top State:** {df_state.iloc[0]['State']} "
-                    f"with {df_state.iloc[0]['Total_Users']:,} registered users")
+            st.info(f"📌 Top State: {df_state.iloc[0]['State']} — {df_state.iloc[0]['Total_Users']:,} users")
 
     except Exception as e:
         st.error(f"Error: {e}")
