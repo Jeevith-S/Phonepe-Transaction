@@ -139,11 +139,66 @@ elif page == "Case 1 - Transaction Dynamics":
             )
             st.plotly_chart(fig_pie, use_container_width=True)
 
+        # ── Quarter-wise trend within the selected year ──────────────────────
+        st.subheader(f"Quarter-wise Transaction Trend — {year}")
+        df_qtr = pd.read_sql(f"""
+            SELECT Quarter, SUM(Transaction_Amount) AS Total_Amount,
+                   SUM(Transaction_Count) AS Total_Count
+            FROM Aggregated_Transaction
+            WHERE Year = {year}
+            GROUP BY Quarter
+            ORDER BY Quarter
+        """, conn)
+        if not df_qtr.empty:
+            df_qtr["Quarter_Label"] = "Q" + df_qtr["Quarter"].astype(str)
+            fig_qtr = px.line(
+                df_qtr, x="Quarter_Label", y="Total_Amount", markers=True,
+                title=f"Transaction Amount by Quarter — {year}"
+            )
+            st.plotly_chart(fig_qtr, use_container_width=True)
+
+        # ── Year-over-year growth/decline ─────────────────────────────────────
+        st.subheader("Growth / Decline Analysis — Year vs Transaction Amount")
+        df_year = pd.read_sql("""
+            SELECT Year, SUM(Transaction_Amount) AS Total_Amount,
+                   SUM(Transaction_Count) AS Total_Count
+            FROM Aggregated_Transaction
+            GROUP BY Year
+            ORDER BY Year
+        """, conn)
+        if not df_year.empty:
+            df_year["YoY_Growth_Pct"] = df_year["Total_Amount"].pct_change() * 100
+            fig_year = px.line(
+                df_year, x="Year", y="Total_Amount", markers=True,
+                title="Total Transaction Amount by Year (National)"
+            )
+            st.plotly_chart(fig_year, use_container_width=True)
+            st.dataframe(
+                df_year[["Year", "Total_Amount", "Total_Count", "YoY_Growth_Pct"]]
+                .round({"YoY_Growth_Pct": 1}),
+                use_container_width=True
+            )
+
         st.subheader("Data Table")
         st.dataframe(df, use_container_width=True)
 
+        # ── Insights section ───────────────────────────────────────────────────
+        st.subheader("Insights")
         if not df.empty:
-            st.info(f"📌 Top State: {df.iloc[0]['State']} — ₹{df.iloc[0]['Total_Amount']:,.0f}")
+            st.info(f"📌 Highest Transaction State ({year} Q{quarter}): {df.iloc[0]['State']} — ₹{df.iloc[0]['Total_Amount']:,.0f}")
+            lowest_state = df.sort_values('Total_Amount').iloc[0]
+            st.info(f"📌 Lowest Transaction State ({year} Q{quarter}): {lowest_state['State']} — ₹{lowest_state['Total_Amount']:,.0f}")
+        if not df_type.empty:
+            st.info(f"📌 Most Popular Payment Category: {df_type.iloc[0]['Transaction_Type']} — ₹{df_type.iloc[0]['Total_Amount']:,.0f}")
+        if len(df_year) >= 2:
+            latest = df_year.iloc[-1]
+            prev = df_year.iloc[-2]
+            direction = "grew" if latest["Total_Amount"] > prev["Total_Amount"] else "declined"
+            st.info(
+                f"📌 National transactions {direction} from ₹{prev['Total_Amount']:,.0f} ({int(prev['Year'])}) "
+                f"to ₹{latest['Total_Amount']:,.0f} ({int(latest['Year'])}) — "
+                f"a {latest['YoY_Growth_Pct']:.1f}% change."
+            )
 
     except Exception as e:
         st.error(f"Error: {e}")
@@ -281,6 +336,102 @@ elif page == "Case 2 - Device Analysis":
             st.dataframe(df, use_container_width=True)
             st.info(f"📌 Top Device Brand (National): {df.iloc[0]['Brand']} — {df.iloc[0]['Total_Users']:,} users")
 
+        # ── App Opens & Engagement Ratio (state-level — see note below) ──────
+        st.markdown("---")
+        st.subheader(f"App Opens & Engagement Ratio by State — {year} Q{quarter}")
+        st.caption(
+            "PhonePe Pulse publishes App Opens at the state/district level, not broken "
+            "down by device brand. So this section shows engagement by region rather than "
+            "by brand — a true 'App Opens per brand' figure isn't available in the source data."
+        )
+        df_engage = pd.read_sql(f"""
+            SELECT State, SUM(RegisteredUsers) AS Total_Users, SUM(AppOpens) AS Total_AppOpens
+            FROM Map_User
+            WHERE Year = {year} AND Quarter = {quarter}
+            GROUP BY State
+            ORDER BY Total_Users DESC
+        """, conn)
+
+        if df_engage.empty:
+            st.warning(f"No app-opens data available for {year} Q{quarter}.")
+        else:
+            df_engage = clean_state_names(df_engage)
+            df_engage["Engagement_Ratio"] = (df_engage["Total_AppOpens"] / df_engage["Total_Users"]).round(2)
+
+            col5, col6 = st.columns(2)
+            with col5:
+                fig_appopens = px.bar(
+                    df_engage.head(10), x="State", y="Total_AppOpens",
+                    color="Total_AppOpens", color_continuous_scale="Purples",
+                    title="Top 10 States by App Opens"
+                )
+                fig_appopens.update_xaxes(tickangle=45)
+                st.plotly_chart(fig_appopens, use_container_width=True)
+
+            with col6:
+                fig_ratio = px.bar(
+                    df_engage.sort_values("Engagement_Ratio", ascending=False).head(10),
+                    x="State", y="Engagement_Ratio",
+                    color="Engagement_Ratio", color_continuous_scale="Oranges",
+                    title="Top 10 States by Engagement Ratio (App Opens ÷ Registered Users)"
+                )
+                fig_ratio.update_xaxes(tickangle=45)
+                st.plotly_chart(fig_ratio, use_container_width=True)
+
+            st.markdown("**Underutilized regions — high registrations, low app opens relative to users**")
+            underutilized = df_engage.sort_values("Engagement_Ratio").head(10)
+            st.dataframe(
+                underutilized[["State", "Total_Users", "Total_AppOpens", "Engagement_Ratio"]],
+                use_container_width=True, hide_index=True
+            )
+
+            top_engage = df_engage.sort_values("Engagement_Ratio", ascending=False).iloc[0]
+            low_engage = df_engage.sort_values("Engagement_Ratio").iloc[0]
+            st.info(
+                f"📌 Highest Engagement Region: {top_engage['State']} "
+                f"(ratio {top_engage['Engagement_Ratio']:.1f} app opens per registered user)"
+            )
+            st.info(
+                f"📌 Underutilized Region: {low_engage['State']} "
+                f"(ratio {low_engage['Engagement_Ratio']:.1f}) — high registrations but comparatively low repeat usage"
+            )
+
+        # ── State dropdown: select a state, see its top brands ───────────────
+        st.markdown("---")
+        st.subheader("State-wise Device Preference")
+        all_states_df = pd.read_sql(f"""
+            SELECT DISTINCT State FROM Aggregated_User
+            WHERE Year = {year} AND Quarter = {quarter}
+              AND Brand IS NOT NULL AND Brand != ''
+            ORDER BY State
+        """, conn)
+
+        if all_states_df.empty:
+            st.warning(f"No state-level brand data available for {year} Q{quarter}.")
+        else:
+            state_display = clean_state_names(all_states_df.copy())
+            state_map = dict(zip(state_display["State"], all_states_df["State"]))
+            chosen_display = st.selectbox("Select a State", sorted(state_map.keys()))
+            chosen_state = state_map[chosen_display]
+
+            df_state_brands = pd.read_sql(f"""
+                SELECT Brand, SUM(Count) AS Total_Users
+                FROM Aggregated_User
+                WHERE Year = {year} AND Quarter = {quarter} AND State = '{chosen_state}'
+                  AND Brand IS NOT NULL AND Brand != ''
+                GROUP BY Brand
+                ORDER BY Total_Users DESC
+            """, conn)
+
+            if not df_state_brands.empty:
+                fig_state_brand = px.bar(
+                    df_state_brands, x="Brand", y="Total_Users",
+                    color="Total_Users", color_continuous_scale="Purples",
+                    title=f"Top Brands in {chosen_display} — {year} Q{quarter}"
+                )
+                st.plotly_chart(fig_state_brand, use_container_width=True)
+                st.dataframe(df_state_brands, use_container_width=True, hide_index=True)
+
     except Exception as e:
         st.error(f"Error: {e}")
 
@@ -355,12 +506,77 @@ elif page == "Case 3 - Insurance Analysis":
                 fig_line.update_xaxes(tickangle=45)
                 st.plotly_chart(fig_line, use_container_width=True)
 
+        # ── District-wise insurance ───────────────────────────────────────────
+        st.subheader(f"District-wise Insurance Analysis — {year} Q{quarter}")
+        df_district = pd.read_sql(f"""
+            SELECT District, State, SUM(Amount) AS Total_Amount, SUM(Count) AS Total_Count
+            FROM Map_Insurance
+            WHERE Year = {year} AND Quarter = {quarter}
+            GROUP BY District, State
+            ORDER BY Total_Amount DESC
+            LIMIT 10
+        """, conn)
+        if not df_district.empty:
+            fig_district = px.bar(
+                df_district, x="District", y="Total_Amount",
+                color="Total_Amount", color_continuous_scale="Greens",
+                title="Top 10 Districts by Insurance Amount"
+            )
+            fig_district.update_xaxes(tickangle=45)
+            st.plotly_chart(fig_district, use_container_width=True)
+        else:
+            st.warning(f"No district-level insurance data for {year} Q{quarter}.")
+
+        # ── Top 10 states - horizontal bar ───────────────────────────────────
+        st.subheader(f"Top 10 States in Insurance — {year} Q{quarter}")
+        if not df.empty:
+            fig_hbar = px.bar(
+                df.head(10).sort_values("Total_Insurance"),
+                x="Total_Insurance", y="State", orientation="h",
+                color="Total_Insurance", color_continuous_scale="Greens",
+                title="Top 10 States — Insurance Amount"
+            )
+            st.plotly_chart(fig_hbar, use_container_width=True)
+
+        # ── Count vs Amount scatter ───────────────────────────────────────────
+        st.subheader("Insurance Transaction Count vs Amount")
+        if not df.empty:
+            fig_scatter = px.scatter(
+                df, x="Total_Policies", y="Total_Insurance",
+                hover_name="State", size="Total_Insurance",
+                color="Total_Insurance", color_continuous_scale="Greens",
+                title=f"Policy Count vs Insurance Amount by State — {year} Q{quarter}",
+                labels={"Total_Policies": "Number of Policies", "Total_Insurance": "Insurance Amount"}
+            )
+            st.plotly_chart(fig_scatter, use_container_width=True)
+
+        # ── Low insurance adoption states ────────────────────────────────────
+        st.subheader("Low Insurance Adoption States")
+        if not df.empty:
+            low_adoption = df.sort_values("Total_Insurance").head(10)
+            st.dataframe(
+                low_adoption[["State", "Total_Insurance", "Total_Policies"]],
+                use_container_width=True, hide_index=True
+            )
+
         st.subheader("Data Table")
         st.dataframe(df, use_container_width=True)
 
+        # ── Insights ──────────────────────────────────────────────────────────
+        st.subheader("Insights")
         if not df.empty:
-            top3 = df.head(3)["State"].tolist()
-            st.info(f"📌 Top 3 States: {', '.join(top3)}")
+            st.info(f"📌 Highest Insurance State: {df.iloc[0]['State']} — ₹{df.iloc[0]['Total_Insurance']:,.0f}")
+            lowest_ins = df.sort_values("Total_Insurance").iloc[0]
+            st.info(f"📌 Lowest Insurance State: {lowest_ins['State']} — ₹{lowest_ins['Total_Insurance']:,.0f}")
+        if len(df_trend) >= 2:
+            latest_t = df_trend.iloc[-1]
+            first_t = df_trend.iloc[0]
+            st.info(
+                f"📌 Growth Opportunity: National insurance amount rose from "
+                f"₹{first_t['Total_Amount']:,.0f} ({first_t['Period']}) to "
+                f"₹{latest_t['Total_Amount']:,.0f} ({latest_t['Period']}) — "
+                f"states still in the bottom 10 above represent the biggest untapped potential."
+            )
 
     except Exception as e:
         st.error(f"Error: {e}")
@@ -440,11 +656,73 @@ elif page == "Case 4 - Market Expansion":
                 )
                 st.plotly_chart(fig_yoy, use_container_width=True)
 
+        # ── Bottom 10 states ──────────────────────────────────────────────────
+        st.subheader(f"Bottom 10 States — {year} Q{quarter}")
+        df_bottom10 = pd.read_sql(f"""
+            SELECT State, SUM(Amount) AS Total_Amount
+            FROM Map_Transaction
+            WHERE Year = {year} AND Quarter = {quarter}
+            GROUP BY State
+            ORDER BY Total_Amount ASC
+            LIMIT 10
+        """, conn)
+        df_bottom10 = clean_state_names(df_bottom10)
+        if not df_bottom10.empty:
+            fig_bottom = px.bar(
+                df_bottom10, x="State", y="Total_Amount",
+                color="Total_Amount", color_continuous_scale="Reds",
+                title="Bottom 10 States by Transaction Amount"
+            )
+            fig_bottom.update_xaxes(tickangle=45)
+            st.plotly_chart(fig_bottom, use_container_width=True)
+
+        # ── Potential expansion states: low volume but high recent growth ────
+        st.subheader("Potential Expansion States (Low Current Volume, High Growth)")
+        df_growth = pd.read_sql("""
+            SELECT State, Year, SUM(Amount) AS Total_Amount
+            FROM Map_Transaction
+            WHERE Year IN (2023, 2024)
+            GROUP BY State, Year
+        """, conn)
+
+        if not df_growth.empty and df_growth["Year"].nunique() == 2:
+            pivot = df_growth.pivot(index="State", columns="Year", values="Total_Amount").reset_index()
+            pivot.columns = ["State", "Amount_Prev", "Amount_Latest"]
+            pivot["Growth_Pct"] = (
+                (pivot["Amount_Latest"] - pivot["Amount_Prev"]) / pivot["Amount_Prev"] * 100
+            )
+            median_amt = pivot["Amount_Latest"].median()
+            expansion = (
+                pivot[pivot["Amount_Latest"] < median_amt]
+                .sort_values("Growth_Pct", ascending=False)
+                .head(10)
+            )
+            expansion = clean_state_names(expansion)
+            st.caption("States with below-median current transaction volume but the fastest 2023→2024 growth — good candidates for early investment before they become saturated.")
+            st.dataframe(
+                expansion[["State", "Amount_Prev", "Amount_Latest", "Growth_Pct"]]
+                .round({"Growth_Pct": 1}),
+                use_container_width=True, hide_index=True
+            )
+        else:
+            expansion = pd.DataFrame()
+            st.warning("Not enough year coverage (need both 2023 and 2024 data) to compute expansion candidates.")
+
         st.subheader("Data Table — Top 10 States")
         st.dataframe(df_top10, use_container_width=True)
 
+        # ── Insights ──────────────────────────────────────────────────────────
+        st.subheader("Insights")
         if not df_top10.empty:
-            st.info(f"📌 Top State: {df_top10.iloc[0]['State']}")
+            st.info(f"📌 Best Market: {df_top10.iloc[0]['State']} — ₹{df_top10.iloc[0]['Total_Amount']:,.0f} ({year} Q{quarter})")
+        if not df_bottom10.empty:
+            st.info(f"📌 Untapped Market (lowest volume): {df_bottom10.iloc[0]['State']} — ₹{df_bottom10.iloc[0]['Total_Amount']:,.0f} ({year} Q{quarter})")
+        if not expansion.empty:
+            top_expansion = expansion.iloc[0]
+            st.info(
+                f"📌 Recommended Expansion State: {top_expansion['State']} — "
+                f"grew {top_expansion['Growth_Pct']:.1f}% from 2023 to 2024 despite still being below the national median volume"
+            )
 
     except Exception as e:
         st.error(f"Error: {e}")
@@ -518,11 +796,65 @@ elif page == "Case 5 - User Registration":
             else:
                 st.warning("No district data available for this period.")
 
+        # ── Top Pincodes ───────────────────────────────────────────────────────
+        st.subheader(f"Top 10 Pincodes by Registered Users — {year} Q{quarter}")
+        df_pin = pd.read_sql(f"""
+            SELECT Pincode, State, SUM(RegisteredUsers) AS Total_Users
+            FROM Top_User_Pincodes
+            WHERE Year = {year} AND Quarter = {quarter}
+            GROUP BY Pincode, State
+            ORDER BY Total_Users DESC
+            LIMIT 10
+        """, conn)
+        if not df_pin.empty:
+            df_pin["Pincode"] = df_pin["Pincode"].astype(str)
+            fig_pin = px.bar(
+                df_pin, x="Pincode", y="Total_Users",
+                color="Total_Users", color_continuous_scale="Reds",
+                title="Top 10 Pincodes by Registered Users",
+                hover_data=["State"]
+            )
+            fig_pin.update_xaxes(type="category", tickangle=45)
+            st.plotly_chart(fig_pin, use_container_width=True)
+            st.dataframe(df_pin, use_container_width=True, hide_index=True)
+        else:
+            st.warning(f"No pincode data available for {year} Q{quarter}.")
+
+        # ── Registration growth trend ────────────────────────────────────────
+        st.subheader("Registration Growth Trend (National)")
+        df_growth_trend = pd.read_sql("""
+            SELECT Year, Quarter, SUM(RegisteredUsers) AS Total_Users
+            FROM Map_User
+            GROUP BY Year, Quarter
+            ORDER BY Year, Quarter
+        """, conn)
+        if not df_growth_trend.empty:
+            df_growth_trend["Period"] = (
+                df_growth_trend["Year"].astype(str) + "-Q" + df_growth_trend["Quarter"].astype(str)
+            )
+            fig_growth = px.line(
+                df_growth_trend, x="Period", y="Total_Users", markers=True,
+                title="Cumulative Registered Users Over Time (National)"
+            )
+            fig_growth.update_xaxes(tickangle=45)
+            st.plotly_chart(fig_growth, use_container_width=True)
+
         st.subheader("All States — Data Table")
         st.dataframe(df_state, use_container_width=True)
 
+        # ── Insights ──────────────────────────────────────────────────────────
+        st.subheader("Insights")
         if not df_state.empty:
-            st.info(f"📌 Top State: {df_state.iloc[0]['State']} — {df_state.iloc[0]['Total_Users']:,} users")
+            st.info(f"📌 Highest Registered State: {df_state.iloc[0]['State']} — {df_state.iloc[0]['Total_Users']:,} users")
+        if not df_district.empty:
+            st.info(f"📌 Highest Registered District: {df_district.iloc[0]['District']} ({df_district.iloc[0]['State']}) — {df_district.iloc[0]['Total_Users']:,} users")
+        if len(df_growth_trend) >= 2:
+            df_growth_trend["QoQ_Growth"] = df_growth_trend["Total_Users"].diff()
+            fastest = df_growth_trend.sort_values("QoQ_Growth", ascending=False).iloc[0]
+            st.info(
+                f"📌 Fastest Growing Period: {fastest['Period']} added "
+                f"{fastest['QoQ_Growth']:,.0f} new registered users nationally compared to the prior quarter"
+            )
 
     except Exception as e:
         st.error(f"Error: {e}")
