@@ -11,7 +11,7 @@ st.set_page_config(
 )
 
 # ── Database connection ───────────────────────────────────────────────────────
-DB_PATH = "phonepe_project.db"
+DB_PATH = "phonpe_project.db"
 
 @st.cache_resource
 def get_conn():
