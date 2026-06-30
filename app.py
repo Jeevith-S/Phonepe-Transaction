@@ -217,10 +217,69 @@ elif page == "Case 2 - Device Analysis":
             fig_line.update_xaxes(tickangle=45)
             st.plotly_chart(fig_line, use_container_width=True)
 
+        # ── Regional variation: top brand per state ──────────────────────────
+        st.subheader(f"Regional Variation — Leading Brand by State ({year} Q{quarter})")
+        df_region = pd.read_sql(f"""
+            SELECT State, Brand, SUM(Count) AS Total_Users
+            FROM Aggregated_User
+            WHERE Year = {year} AND Quarter = {quarter}
+              AND Brand IS NOT NULL AND Brand != ''
+            GROUP BY State, Brand
+        """, conn)
+
+        if df_region.empty:
+            st.warning(
+                f"No regional device data is available for {year} Q{quarter}. "
+                "Try a year between 2018 and 2022."
+            )
+        else:
+            top_per_state = (
+                df_region.loc[df_region.groupby("State")["Total_Users"].idxmax()]
+                .sort_values("Total_Users", ascending=False)
+                .reset_index(drop=True)
+            )
+            top_per_state = clean_state_names(top_per_state)
+
+            col3, col4 = st.columns([3, 2])
+            with col3:
+                fig_region_map = px.choropleth(
+                    top_per_state,
+                    geojson=GEOJSON_URL,
+                    featureidkey="properties.ST_NM",
+                    locations="State",
+                    color="Brand",
+                    hover_name="State",
+                    hover_data={"Total_Users": ":,"},
+                    title=f"Leading Device Brand by State — {year} Q{quarter}"
+                )
+                fig_region_map.update_geos(fitbounds="locations", visible=False)
+                fig_region_map.update_layout(height=450, margin=dict(l=0, r=0, t=40, b=0))
+                st.plotly_chart(fig_region_map, use_container_width=True)
+
+            with col4:
+                st.markdown("**How many states each brand leads in**")
+                brand_counts = top_per_state["Brand"].value_counts().reset_index()
+                brand_counts.columns = ["Brand", "States_Led"]
+                st.dataframe(brand_counts, use_container_width=True, hide_index=True)
+
+            st.dataframe(
+                top_per_state[["State", "Brand", "Total_Users"]],
+                use_container_width=True
+            )
+
+            leading_brand = top_per_state["Brand"].mode()[0]
+            num_states_leading = (top_per_state["Brand"] == leading_brand).sum()
+            total_states = len(top_per_state)
+            st.info(
+                f"📌 {leading_brand} leads in {num_states_leading} out of {total_states} states "
+                f"for {year} Q{quarter}, but the remaining states show different brand preferences — "
+                f"this is the regional variation the case study asks about."
+            )
+
         if not df.empty:
             st.subheader("Data Table")
             st.dataframe(df, use_container_width=True)
-            st.info(f"📌 Top Device Brand: {df.iloc[0]['Brand']} — {df.iloc[0]['Total_Users']:,} users")
+            st.info(f"📌 Top Device Brand (National): {df.iloc[0]['Brand']} — {df.iloc[0]['Total_Users']:,} users")
 
     except Exception as e:
         st.error(f"Error: {e}")
