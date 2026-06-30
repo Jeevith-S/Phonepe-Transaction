@@ -120,57 +120,45 @@ elif page == "Case 1 - Transaction Dynamics":
         fig_map.update_layout(height=500, margin=dict(l=0, r=0, t=40, b=0))
         st.plotly_chart(fig_map, use_container_width=True)
 
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("Top 15 States — Bar Chart")
-            fig_bar = px.bar(
-                df.head(15), x="State", y="Total_Amount",
-                color="Total_Amount", color_continuous_scale="Purples",
-                title="Top 15 States by Transaction Amount"
-            )
-            fig_bar.update_xaxes(tickangle=45)
-            st.plotly_chart(fig_bar, use_container_width=True)
+        st.subheader("Top 15 States — Bar Chart")
+        fig_bar = px.bar(
+            df.head(15), x="State", y="Total_Amount",
+            color="Total_Amount", color_continuous_scale="Purples",
+            title="Top 15 States by Transaction Amount"
+        )
+        fig_bar.update_xaxes(tickangle=45)
+        st.plotly_chart(fig_bar, use_container_width=True)
 
-        with col2:
-            st.subheader("Transaction Type Breakdown")
-            df_type_sorted = df_type.sort_values("Total_Amount", ascending=False)
-            fig_pie = px.pie(
-                df_type_sorted, names="Transaction_Type", values="Total_Amount",
-                hole=0.4, title="Amount by Payment Type"
-            )
-            fig_pie.update_traces(
-                textposition="outside",
-                textinfo="percent+label",
-                sort=False
-            )
-            fig_pie.update_layout(showlegend=True)
-            st.plotly_chart(fig_pie, use_container_width=True)
+        st.subheader("Payment Category Analysis — Amount by Payment Type")
+        df_type_sorted = df_type.sort_values("Total_Amount", ascending=False).reset_index(drop=True)
 
-            st.caption(
-                "Note: Peer-to-peer payments dominate by amount, so smaller categories like "
-                "Financial Services can be under 1% of the pie and hard to see. "
-                "The log-scale bar chart below shows all categories clearly regardless of size."
-            )
-            fig_type_bar = px.bar(
-                df_type_sorted, x="Transaction_Type", y="Total_Amount",
-                color="Transaction_Type",
-                title="Amount by Payment Type — Log Scale",
-                log_y=True,
-                text_auto=".2s"
-            )
-            fig_type_bar.update_xaxes(tickangle=30)
-            fig_type_bar.update_layout(showlegend=False)
-            st.plotly_chart(fig_type_bar, use_container_width=True)
+        fig_pie = px.pie(
+            df_type_sorted,
+            names="Transaction_Type",
+            values="Total_Amount",
+            title=f"Amount by Payment Type — {year} Q{quarter}",
+        )
+        fig_pie.update_traces(
+            textposition="auto",
+            textinfo="label+percent",
+            pull=[0.05 if p < 1 else 0 for p in (df_type_sorted["Total_Amount"] / df_type_sorted["Total_Amount"].sum() * 100)],
+            insidetextorientation="radial"
+        )
+        fig_pie.update_layout(
+            height=550,
+            legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5),
+            margin=dict(t=60, b=80, l=20, r=20)
+        )
+        st.plotly_chart(fig_pie, use_container_width=True)
 
-            with st.expander("View exact values by payment type"):
-                df_type_display = df_type_sorted.copy()
-                df_type_display["Pct_of_Total"] = (
-                    df_type_display["Total_Amount"] / df_type_display["Total_Amount"].sum() * 100
-                ).round(3)
-                st.dataframe(
-                    df_type_display[["Transaction_Type", "Total_Amount", "Total_Count", "Pct_of_Total"]],
-                    use_container_width=True, hide_index=True
-                )
+        df_type_display = df_type_sorted.copy()
+        df_type_display["Pct_of_Total"] = (
+            df_type_display["Total_Amount"] / df_type_display["Total_Amount"].sum() * 100
+        ).round(3)
+        st.dataframe(
+            df_type_display[["Transaction_Type", "Total_Amount", "Total_Count", "Pct_of_Total"]],
+            use_container_width=True, hide_index=True
+        )
 
         # ── Quarter-wise trend within the selected year ──────────────────────
         st.subheader(f"Quarter-wise Transaction Trend — {year}")
