@@ -133,11 +133,44 @@ elif page == "Case 1 - Transaction Dynamics":
 
         with col2:
             st.subheader("Transaction Type Breakdown")
+            df_type_sorted = df_type.sort_values("Total_Amount", ascending=False)
             fig_pie = px.pie(
-                df_type, names="Transaction_Type", values="Total_Amount",
+                df_type_sorted, names="Transaction_Type", values="Total_Amount",
                 hole=0.4, title="Amount by Payment Type"
             )
+            fig_pie.update_traces(
+                textposition="outside",
+                textinfo="percent+label",
+                sort=False
+            )
+            fig_pie.update_layout(showlegend=True)
             st.plotly_chart(fig_pie, use_container_width=True)
+
+            st.caption(
+                "Note: Peer-to-peer payments dominate by amount, so smaller categories like "
+                "Financial Services can be under 1% of the pie and hard to see. "
+                "The log-scale bar chart below shows all categories clearly regardless of size."
+            )
+            fig_type_bar = px.bar(
+                df_type_sorted, x="Transaction_Type", y="Total_Amount",
+                color="Transaction_Type",
+                title="Amount by Payment Type — Log Scale",
+                log_y=True,
+                text_auto=".2s"
+            )
+            fig_type_bar.update_xaxes(tickangle=30)
+            fig_type_bar.update_layout(showlegend=False)
+            st.plotly_chart(fig_type_bar, use_container_width=True)
+
+            with st.expander("View exact values by payment type"):
+                df_type_display = df_type_sorted.copy()
+                df_type_display["Pct_of_Total"] = (
+                    df_type_display["Total_Amount"] / df_type_display["Total_Amount"].sum() * 100
+                ).round(3)
+                st.dataframe(
+                    df_type_display[["Transaction_Type", "Total_Amount", "Total_Count", "Pct_of_Total"]],
+                    use_container_width=True, hide_index=True
+                )
 
         # ── Quarter-wise trend within the selected year ──────────────────────
         st.subheader(f"Quarter-wise Transaction Trend — {year}")
