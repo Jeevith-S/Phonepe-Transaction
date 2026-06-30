@@ -16,7 +16,7 @@ DB_PATH = "phonpe_project.db"
 @st.cache_resource
 def get_conn():
     if not os.path.exists(DB_PATH):
-        st.error("Database file 'phonepe_project.db' not found in the repo root.")
+        st.error("Database file 'phonpe_project.db' not found in the repo root.")
         st.stop()
     return sqlite3.connect(DB_PATH, check_same_thread=False)
 
@@ -52,7 +52,7 @@ page = st.sidebar.selectbox("Go to", [
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("Filters")
-year    = st.sidebar.selectbox("Year",    [2018, 2019, 2020, 2021, 2022, 2023, 2024], index=5)
+year    = st.sidebar.selectbox("Year",    [2018, 2019, 2020, 2021, 2022, 2023, 2024], index=2)
 quarter = st.sidebar.selectbox("Quarter", [1, 2, 3, 4])
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -74,13 +74,6 @@ if page == "Home":
     - Geographic heatmaps on India map
     - Top districts by user registration
     """)
-
-    st.markdown("---")
-    st.subheader("How to use")
-    st.write(
-        "Use the **sidebar** to navigate between the 5 business case studies. "
-        "Select a **Year** and **Quarter** from the sidebar filters to update all charts."
-    )
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CASE 1 — TRANSACTION DYNAMICS
@@ -187,25 +180,33 @@ elif page == "Case 2 - Device Analysis":
         col1, col2 = st.columns(2)
         with col1:
             st.subheader(f"Market Share — {year} Q{quarter}")
-            fig_pie = px.pie(
-                df, names="Brand", values="Total_Users",
-                hole=0.45, title="Device Brand Market Share"
-            )
-            fig_pie.update_traces(textposition="inside", textinfo="percent+label")
-            st.plotly_chart(fig_pie, use_container_width=True)
+            if df.empty:
+                st.warning(
+                    f"No device brand data is available for {year} Q{quarter}. "
+                    "PhonePe Pulse only publishes this dataset from 2018 to 2022. "
+                    "Try selecting a year between 2018 and 2022."
+                )
+            else:
+                fig_pie = px.pie(
+                    df, names="Brand", values="Total_Users",
+                    hole=0.45, title="Device Brand Market Share"
+                )
+                fig_pie.update_traces(textposition="inside", textinfo="percent+label")
+                st.plotly_chart(fig_pie, use_container_width=True)
 
         with col2:
             st.subheader(f"Top 10 Brands — {year} Q{quarter}")
-            fig_bar = px.bar(
-                df, x="Brand", y="Total_Users",
-                color="Total_Users", color_continuous_scale="Purples",
-                title="Users by Device Brand"
-            )
-            fig_bar.update_xaxes(tickangle=45)
-            st.plotly_chart(fig_bar, use_container_width=True)
+            if not df.empty:
+                fig_bar = px.bar(
+                    df, x="Brand", y="Total_Users",
+                    color="Total_Users", color_continuous_scale="Purples",
+                    title="Users by Device Brand"
+                )
+                fig_bar.update_xaxes(tickangle=45)
+                st.plotly_chart(fig_bar, use_container_width=True)
 
         st.subheader("Brand Trend Over Time — Top 5 Brands")
-        if not df_trend.empty:
+        if not df_trend.empty and not df.empty:
             top5 = df["Brand"].head(5).tolist()
             dft = df_trend[df_trend["Brand"].isin(top5)].copy()
             dft["Period"] = dft["Year"].astype(str) + "-Q" + dft["Quarter"].astype(str)
@@ -216,10 +217,9 @@ elif page == "Case 2 - Device Analysis":
             fig_line.update_xaxes(tickangle=45)
             st.plotly_chart(fig_line, use_container_width=True)
 
-        st.subheader("Data Table")
-        st.dataframe(df, use_container_width=True)
-
         if not df.empty:
+            st.subheader("Data Table")
+            st.dataframe(df, use_container_width=True)
             st.info(f"📌 Top Device Brand: {df.iloc[0]['Brand']} — {df.iloc[0]['Total_Users']:,} users")
 
     except Exception as e:
